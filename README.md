@@ -1,136 +1,173 @@
-# AI Grading Assistant database
+# AI Grading Assistant
 
-This repository contains the PostgreSQL schema described in [the database design](doc/DB_SCHEMA_DESGIN.md), a React + Tailwind frontend in `frontend/`, and a FastAPI backend in `backend/`. The app supports login/logout, invitations, Owner account management, versioned assignments, private uploads, document/ZIP extraction, and student submissions. AI grading, embeddings, and grade-review screens are the next stage.
+AI Grading Assistant is a system designed to help trainers evaluate student assignments and exercises. It aims to combine Large Language Models (LLMs), semantic embeddings, reference solutions, and high-quality past submissions to provide consistent scoring and useful feedback, with trainers retaining control over final grades.
 
-## Owner and Trainer workspace
+## Objectives
 
-See [doc/WORKSPACE_IMPLEMENTATION.md](doc/WORKSPACE_IMPLEMENTATION.md) for the new screens, migration `005`, upload worker startup, supported file types, limits, and verification commands. Start `python -m app.worker` in a separate backend terminal so uploaded files can become ready.
+- Reduce the manual effort required to grade assignments.
+- Give students consistent feedback that supports learning.
+- Build a collection of high-quality submissions for future reference and evaluation.
 
-## Login and logout app
+## Intended workflow
 
-Backend modules are organized into API routes, services, database models, repositories, schemas, configuration, and connection management. See [backend/README.md](backend/README.md) for the structure and responsibilities.
+1. **Create assignments and answer keys.** Trainers define assignments, scoring criteria, and reference solutions.
+2. **Collect student submissions.** Students submit files, including ZIP archives, for processing.
+3. **Evaluate with AI.** LLMs and embeddings compare submissions with answer keys and relevant examples to suggest scores and feedback.
+4. **Review grades.** Trainers review AI feedback and adjust scores before publishing results.
+5. **Reuse quality examples.** Approved high-scoring submissions become reference examples, with embeddings supporting retrieval and recommendations.
 
-Use Node.js 20.19+ (or 22.12+) and Python 3.10+. Start PostgreSQL and import the sample data using the commands below, then run:
+## Implementation status
+
+The current application provides the foundation for this workflow:
+
+- Authentication with server-side sessions and HttpOnly cookies.
+- Organization membership, role-based access, and account invitations.
+- Assignment editing, versioning, scoring criteria, reference uploads, and publication rules.
+- Student submissions, private file storage, and background document/ZIP extraction.
+- PostgreSQL schema with pgvector support for future semantic retrieval.
+
+**AI scoring, model integration, embedding generation, exemplar recommendations, and trainer grade-review screens are planned features.** Sample AI evaluations and vectors in the development seed data are synthetic; they do not represent a working AI integration.
+
+## Technology
+
+| Component | Current implementation / planned integration |
+|---|---|
+| Backend | Python, FastAPI, Psycopg, Pydantic |
+| Frontend | React, Vite, Tailwind CSS |
+| Database | PostgreSQL 17 with pgvector |
+| Authentication | Server-side sessions with HttpOnly cookies |
+| File handling | Private local storage and a background extraction worker |
+| Local infrastructure | Docker Compose for PostgreSQL |
+| AI evaluation (planned) | OpenAI GPT, Gemini, or an equivalent LLM |
+| Embeddings (planned) | An embedding provider for semantic comparison and retrieval |
+| Cloud storage (optional, planned) | AWS S3, Google Cloud Storage, or Azure Blob Storage |
+
+## Repository structure
+
+```text
+backend/
+  app/             FastAPI routes, services, repositories, schemas, and worker
+  tests/           Backend integration tests
+  .env.example     Example environment configuration
+frontend/
+  src/             React pages, components, layouts, and API helpers
+db/
+  migrations/      Ordered database migrations
+  sample_data.sql  Synthetic development data
+  smoke.sql        Rollback-only schema checks
+compose.yaml       Local PostgreSQL service
+```
+
+See [backend/README.md](backend/README.md) for backend module responsibilities.
+
+## Run locally
+
+### Prerequisites
+
+- Python 3.10 or later.
+- Node.js 22.12+ or 24 and npm.
+- Docker with Docker Compose.
+
+### 1. Start PostgreSQL
+
+From the repository root:
+
+```sh
+docker compose up -d --wait
+```
+
+A fresh database volume applies all SQL files in `db/migrations/` automatically. For an existing volume, apply only unapplied migrations once, in filename order. Preserve existing volumes and data.
+
+### 2. Set up the backend
 
 ```sh
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m app.set_password trainer@demo.example
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+cp .env.example .env
 ```
 
-The password command prompts for a password and replaces the sample account's non-login placeholder. It also revokes existing sessions. No fixed demo password is supplied.
-
-In a second terminal:
+Review `.env` for your local settings. Create the first organization owner:
 
 ```sh
-cd frontend
-npm install
-npm run dev
-```
-
-Open **http://localhost:5173** and sign in as `trainer@demo.example` with the password you set. The account screen includes a **Sign out** button. Reloading restores a valid session. Failed login and connection errors appear on screen.
-
-Vite proxies `/api` to FastAPI at port 8000. Endpoints are `POST /api/auth/login`, `GET /api/auth/me`, and `POST /api/auth/logout`. API docs are at http://127.0.0.1:8000/docs. POST and PATCH requests require `X-Requested-With: grading-web`; the frontend supplies it automatically.
-
-The backend reads environment variables listed in `backend/.env.example`. To load a copied `backend/.env` file, start Uvicorn with `--env-file .env`. Sessions last eight hours by default; only a SHA-256 token digest is stored in `auth_sessions`. The browser cookie is HttpOnly and SameSite=Lax. Logout revokes the database session and clears the cookie.
-
-For deployment, serve the frontend and `/api` from one HTTPS origin, set `COOKIE_SECURE=true`, set `FRONTEND_ORIGIN` to that origin, and configure `DATABASE_URL` with a dedicated database role. The development bootstrap role is not suitable for production. Add shared login and invitation rate limiting before exposing this service publicly. Member and invitation APIs enforce organization permissions; future grading endpoints must implement their own tenant authorization.
-
-Run the backend integration tests against a database with the migrations applied:
-
-```sh
-cd backend
-.venv/bin/python -m pytest -q
-```
-
-Most tests use rollback transactions. The concurrency test creates isolated temporary accounts and an organization, then removes only those records. Existing data is preserved. Run `npm test` for component tests and `npm run build` for the production bundle from `frontend/`. Node.js 22.12+ or 24 is recommended for test tooling.
-
-## Account creation through invitations
-
-For an existing database volume, apply the invitation migration once (it has already been applied to the local database during implementation):
-
-```sh
-docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U grading -d grading < db/migrations/004_account_invitations.sql
-```
-
-Fresh database volumes apply all migrations automatically. Create the first owner and a new organization from `backend/`:
-
-```sh
-source .venv/bin/activate
 python -m app.create_owner --organization "Training Center" --email owner@example.com --name "Organization Owner"
 ```
 
-The command prompts for a password (12–1024 characters) and confirmation. It creates the organization, user, and owner membership in one transaction. It rejects existing emails without changing their account. The sample trainer remains a trainer and cannot invite members.
-
-1. Sign in with the owner account at http://localhost:5173.
-2. In **Organization members**, choose an organization, enter an email, choose a role, and click **Create invitation**.
-3. Copy the generated link and share it manually. It is shown only when created and expires after 48 hours. Automatic email delivery is not included.
-4. Open the link. A new user enters their name, password, and password confirmation. An existing user signs in with the invited email and confirms acceptance.
-5. After acceptance, a new user signs in normally. Owners/admins can see the member and invitation lists or cancel pending invitations.
-
-Owners can invite admins or trainers; admins can invite trainers. Trainers cannot manage members. Invites become unusable after acceptance, expiry, cancellation, organization suspension, or loss of the inviter's required permissions. Existing memberships are preserved; invitation acceptance does not change or reactivate their roles.
-
-Invitation tokens are generated randomly, stored as SHA-256 digests, and included in the link fragment. The browser submits the token in a POST body. Acceptance locks the invitation row and creates the user, membership, and acceptance timestamp in a single transaction, preventing replay and concurrent double use. Cookies now use the `/api` path; sign in again if you have a session created before this change.
-
-## Run locally
+The command prompts for a password. With the default local configuration, start the API:
 
 ```sh
-docker compose up -d --wait
-docker compose exec postgres psql -U grading -d grading
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
-Run the rollback-only schema smoke test with:
+The owner command and worker read environment variables directly. If you customize `.env`, export the same settings into their shells before running them. The API and worker must share database and storage settings.
+
+### 3. Start the upload worker
+
+In a separate terminal:
 
 ```sh
-docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U grading -d grading < db/smoke.sql
+cd backend
+source .venv/bin/activate
+python -m app.worker
 ```
 
-The `pgvector/pgvector:pg17` image runs the SQL migrations in `db/migrations` **only when the database volume is first created**. For an existing volume, apply a new migration explicitly with `psql`; do not delete a volume containing data. The Compose password and exposed port are for local development only.
+Uploads remain pending until the worker processes them. Uploaded files are stored in `backend/.storage/` by default and are excluded from Git.
 
-The initial embedding table uses 1,536 dimensions and cosine distance. Insert an `embedding_profiles` row matching that dimension before writing vectors. Another embedding dimension requires a new migration and a separate embedding table or partition.
+### 4. Start the frontend
 
-## Sample data
+In another terminal:
 
-The development database contains synthetic sample data in `db/sample_data.sql`. It includes a trainer, two students, a published assignment with two rubric criteria, an answer key, two submissions, a simulated AI evaluation, a trainer-approved grade, and an anonymized exemplar with demo vectors. The AI result and vectors are illustrative; no model or storage provider was called. The script can be run again without duplicating records:
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) and sign in with the owner account. Vite proxies `/api` requests to port 8000. Interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+
+Owners can invite admins and trainers; admins can invite trainers. Invitation links must currently be shared manually.
+
+## Optional sample data
+
+From the repository root, load synthetic development records:
 
 ```sh
 docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U grading -d grading < db/sample_data.sql
 ```
 
-Connect from DBeaver using the **PostgreSQL** driver:
+The sample includes assignments, references, submissions, and illustrative grading records. To sign in with the sample trainer, set a password from `backend/` with the virtual environment activated:
 
-| Setting | Value |
-|---|---|
-| Host | `localhost` |
-| Port | `5432` |
-| Database | `grading` |
-| Username | `grading` |
-| Password | `grading_dev_only` |
-
-Open `grading` → `Schemas` → `public` → `Tables`. Right-click a table and select **View Data**. A useful starting query is:
-
-```sql
-SELECT s.display_name, a.title, sub.status, g.total_score, g.feedback
-FROM submissions sub
-JOIN students s ON (s.organization_id, s.id) = (sub.organization_id, sub.student_id)
-JOIN assignment_versions v ON (v.organization_id, v.id) = (sub.organization_id, sub.assignment_version_id)
-JOIN assignments a ON (a.organization_id, a.id) = (v.organization_id, v.assignment_id)
-LEFT JOIN grade_revisions g ON (g.organization_id, g.id) = (sub.organization_id, sub.current_published_grade_id)
-WHERE sub.organization_id = '10000000-0000-0000-0000-000000000001';
+```sh
+python -m app.set_password trainer@demo.example
 ```
 
-For tenant-scoped application queries, use a database role without `BYPASSRLS` or table ownership privileges and set the tenant in each transaction:
+## Checks
 
-```sql
-BEGIN;
-SET LOCAL app.organization_id = '00000000-0000-0000-0000-000000000001';
--- tenant queries here
-COMMIT;
+Run backend integration tests against PostgreSQL with all migrations applied:
+
+```sh
+cd backend
+source .venv/bin/activate
+python -m pytest -q
 ```
 
-The bootstrap `grading` role owns the schema and therefore bypasses row-level security. Do not use it for application traffic. Applications must also authorize the authenticated user against an active membership, use a dedicated role with restricted column access for sensitive prompts and student data, and write audit/outbox records for relevant changes.
+Run frontend tests and create a production bundle:
 
-Publication guards enforce rubric totals, usable references, grade coverage, current-grade consistency, and published-content immutability. Future grading APIs and workers must implement grading-specific idempotency, authorization, anonymization review, and event delivery described in the design; the upload/submission workflows implement their own transaction and lease handling.
+```sh
+cd frontend
+npm test
+npm run build
+```
+
+Run the rollback-only database smoke checks from the repository root:
+
+```sh
+docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U grading -d grading < db/smoke.sql
+```
+
+## Deployment configuration
+
+Use `backend/.env.example` as the configuration reference. Serve the frontend and API from one HTTPS origin, set `COOKIE_SECURE=true`, and set `FRONTEND_ORIGIN` to that origin. Configure a dedicated database role with appropriate restrictions; the Compose bootstrap credentials are for local development.
+
+Keep credentials, session tokens, and uploaded student files out of Git. Private file access and organization requests must remain authorized, and uploaded code must never be executed.

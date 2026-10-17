@@ -1,0 +1,49 @@
+# Local project documentation and agent instructions
+/doc/
+AGENTS.md
+/.codex/
+
+# Local environment and secrets (keep shareable examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+.storage/
+
+# Python environments, bytecode, and tool caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# Frontend dependencies, builds, and caches
+node_modules/
+dist/
+.vite/
+.vite-temp/
+.vitest/
+.vitest-cache/
+*.tsbuildinfo
+
+# Test coverage and logs
+coverage/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.log
+
+# Local editor, OS, and temporary files
+.idea/
+.vscode/
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
